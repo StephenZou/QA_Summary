@@ -26,10 +26,11 @@ class SequenceToSequence(tf.keras.Model):
         enc_output, enc_hidden = self.encoder(enc_inp, enc_hidden)
         return enc_output, enc_hidden
 
-    def call(self, enc_output, dec_inp, dec_hidden, dec_tar):
+    def call(self, enc_output, dec_inp, dec_hidden, dec_tar, epsilon):
         predictions = []
         attentions = []
         context_vector, _ = self.attention(dec_hidden, enc_output)  # dec_hidden(256,256) enc_output(256,200,256)
+        pred = '[START]'
         for t in range(dec_tar.shape[1]):
             # Teacher Forcing
             _, pred, dec_hidden = self.decoder(tf.expand_dims(dec_inp[:, t], 1),  context_vector)

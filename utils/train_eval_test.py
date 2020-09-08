@@ -2,7 +2,7 @@ import tensorflow as tf
 from modelsV1.models.sequence_to_sequence import SequenceToSequence
 from utils.batcher import Vocab, batcher
 from utils.train_helper import train_model
-from .test_helper import greedy_decode
+from .test_helper import search_decode
 from tqdm import tqdm
 from data_processing.utils.data_utils import get_result_filename
 import pandas as pd
@@ -57,9 +57,7 @@ def test(params):
     ckpt.restore(ckpt_manager.latest_checkpoint)
     print("Model restored")
     results = []
-    if params['greedy_decode']:
-        # params['batch_size'] = 512
-        results = predict_result(model, params, vocab, params['test_save_dir'])
+    results = predict_result(model, params, vocab, params['test_save_dir'])
     print("results个数："+str(len(results)))
     return results
 
@@ -67,7 +65,7 @@ def test(params):
 def predict_result(model, params, vocab, result_save_path):
     print("Creating the batcher ...")
     dataset = batcher(vocab, params)
-    results = greedy_decode(model, dataset, vocab, params)
+    results = search_decode(model, dataset, vocab, params)
     if params["mode"] == "test":
         results = list(map(lambda x: x.replace(" ", ""), results))
         save_predict_result(results, params)

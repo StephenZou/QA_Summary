@@ -18,7 +18,7 @@ def main():
                         help="maximum number of words of the predicted abstract", type=int)
     parser.add_argument("--min_dec_steps", default=30,
                         help="Minimum number of words of the predicted abstract", type=int)
-    parser.add_argument("--batch_size", default=128, help="batch size", type=int)
+    parser.add_argument("--batch_size", default=3, help="batch size", type=int)
     parser.add_argument("--beam_size", default=3,
                         help="beam size for beam search decoding (must be equal to batch size in decode mode)",
                         type=int)
@@ -72,7 +72,10 @@ def main():
     # mode
     parser.add_argument("--mode", default='eval', help="training, eval or test options")
     parser.add_argument("--model", default='SequenceToSequence', help="which model to be slected")
-    parser.add_argument("--greedy_decode", default=True, help="greedy_decoder")
+    parser.add_argument("--decode_type", default='beam', help="greedy search or beam search")
+    parser.add_argument("--repetition_penalty", default=1.2, help="repetition penalty")
+    parser.add_argument("--sampling", default="linear",
+                        help="decay type of scheduled sampling, such as: linear, exponential, inverse sigmoid")
 
     args = parser.parse_args()
     params = vars(args)
