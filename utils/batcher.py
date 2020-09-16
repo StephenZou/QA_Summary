@@ -105,7 +105,10 @@ def example_generator(vocab, train_x_path, train_y_path, eval_x_path, test_x_pat
             abstract_sentences = [""]
             abstract_words = abstract.split()
             abs_ids = [vocab.word_to_id(w) for w in abstract_words]
+            abs_ids_extend_vocab = abstract_to_ids(abstract_words, vocab, article_oovs);
             dec_input, target = get_dec_inp_targ_seqs(abs_ids, max_dec_len, start_decoding, stop_decoding)
+            _,target = get_dec_inp_targ_seqs(abs_ids_extend_vocab,max_dec_len, start_decoding, stop_decoding)
+
             dec_len = len(dec_input)
 
             sample_decoder_pad_mask = [1 for _ in range(dec_len)]
@@ -164,6 +167,22 @@ def example_generator(vocab, train_x_path, train_y_path, eval_x_path, test_x_pat
                     yield output
 
 
+def abstract_to_ids(abstract_words, vocab, article_oovs):
+    ids=[]
+    unk_id = vocab.word_to_id(UNKNOWN_TOKEN)
+    for w in abstract_words:
+        i = vocab.word_to_id(w)
+        if i==unk_id:
+            if w in article_oovs:
+                vocab_idx = vocab.size()+article_oovs.index(w)
+                ids.append(vocab_idx)
+            else:
+                ids.append(unk_id)
+        else:
+            ids.append(i)
+    return ids
+
+
 def batch_generator(generator, vocab, train_x_path, train_y_path, eval_x_path,
                     test_x_path, max_enc_len, max_dec_len, batch_size, mode, decode_type, beam_size):
     dataset = tf.data.Dataset.from_generator(lambda: generator(vocab, train_x_path, train_y_path, eval_x_path,
@@ -199,7 +218,7 @@ def batch_generator(generator, vocab, train_x_path, train_y_path, eval_x_path,
                                              })
     def update(entry):
         return ({"enc_input": entry["enc_input"],
-                 "extend_enc_input": entry["enc_input_extend_vocab"],
+                 "extended_enc_input": entry["enc_input_extend_vocab"],
                  "article_oovs": entry["article_oovs"],
                  "enc_len": entry["enc_len"],
                  "article": entry["article"],

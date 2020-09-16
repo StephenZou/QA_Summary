@@ -1,4 +1,6 @@
 import tensorflow as tf
+
+from modelsV1.models.pgn import PGN
 from modelsV1.models.sequence_to_sequence import SequenceToSequence
 from utils.batcher import Vocab, batcher
 from utils.train_helper import train_model
@@ -21,7 +23,8 @@ def train(params):
     b = batcher(vocab, params)
 
     print("Building the model ...")
-    model = SequenceToSequence(params)
+    # model = SequenceToSequence(params)
+    model = PGN(params)
 
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}/checkpoint".format(params["seq2seq_model_dir"])
@@ -39,9 +42,9 @@ def train(params):
 
 
 def test(params):
-    # assert params["mode"].lower() == "test" | params["mode"].lower() == "eval" , "change training mode to 'test' or 'eval'"
+    assert params["mode"].lower() == "test" or params["mode"].lower() == "eval" , "change training mode to 'test' or 'eval'"
     print("Building the model ...")
-    model = SequenceToSequence(params)
+    model = PGN(params)
 
     print("Creating the vocab ...")
     vocab = Vocab(params["vocab_path"], params["vocab_size"])

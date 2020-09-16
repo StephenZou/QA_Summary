@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tqdm import tqdm
+import numpy as np
 
 
 UNKNOWN_TOKEN = '[UNK]'
@@ -68,13 +69,21 @@ def batch_greedy_decode(model, enc_data, vocab, params):
 
 
 class Hypothesis:
-    def __init__(self, tokens, log_probs):
+    def __init__(self, tokens, log_probs, state, attn_dists, p_gens, coverage):
         self.tokens = tokens
         self.log_probs = log_probs
         self.abstract = ""
-    def extend(self, token, log_prob):
+        self.state = state
+        self.attn_dists = attn_dists
+        self.p_gens = p_gens
+        self.coverage = coverage
+    def extend(self, token, log_prob, state, attn_dist, p_gen, coverage):
         return Hypothesis(tokens=self.tokens+[token],
-                          log_probs=self.log_probs+[log_prob])
+                          log_probs=self.log_probs+[log_prob],
+                          state=state,
+                          attn_dists=self.attn_dists+[attn_dist],
+                          p_gens=self.p_gens+[p_gen],
+                          coverage=coverage)
     @property
     def latest_token(self):
         return self.tokens[-1]
@@ -100,51 +109,103 @@ def batch_beam_decode(model, enc_data, vocab, params):
     stop_index = vocab.word_to_id(STOP_DECODING)
     unk_index = vocab.word_to_id(UNKNOWN_TOKEN)
     batch_size = params['batch_size']
-    def decode_onestep(context_vector, dec_input, enc_output, prev_output_tokens, batch_size, repetition_penalty):
-        # final_dists, _ = model(enc_outputs, dec_input, dec_state)
-        _, pred, dec_hidden = model.decoder(dec_input, context_vector)
-        context_vector, _ = model.attention(dec_hidden, enc_output)
-        pred = enforce_repetition_penalty_(pred, batch_size, prev_output_tokens, repetition_penalty)
-        top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(pred), k=params["beam_size"]*2) # (batch_size, beam_size*2)
+
+    def decode_onestep(enc_inp, enc_outputs, dec_input, dec_state, enc_extended_inp, batch_oov_len, enc_pad_mask,
+                       use_coverage, pre_coverage):
+        outputs = model(enc_outputs,
+                        dec_state,
+                        enc_inp,
+                        enc_extended_inp,
+                        dec_input,
+                        batch_oov_len,
+                        enc_pad_mask,
+                        use_coverage,
+                        pre_coverage)
+        final_dists = outputs["logits"]
+        dec_hidden =outputs["dec_hidden"]
+        attentions = outputs["attentions"]
+        coverages = outputs["coverages"]
+        p_gens = outputs["p_gens"]
+        top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(final_dists), k=params["beam_size"]*2)
         top_k_log_probs = tf.math.log(top_k_probs)
-        results = {"top_k_ids": top_k_ids,
-                   "top_k_log_probs": top_k_log_probs,
-                   "context_vector": context_vector}
+        results = {
+            "dec_state": dec_hidden,
+            "attention_vec": attentions,
+            "top_k_ids": top_k_ids,
+            "top_k_log_probs": top_k_log_probs,
+            "p_gen": p_gens,
+            "coverages": coverages
+        }
         return results
+    # def decode_onestep(context_vector, dec_input, dec_state, enc_output, prev_output_tokens, batch_size, repetition_penalty):
+    #     # final_dists, _ = model(enc_outputs, dec_input, dec_state)
+    #     # _, pred, dec_hidden = model.decoder(dec_input, context_vector)
+    #     outputs = model.decoder(enc_output, dec_state, enc)
+    #     context_vector, _ = model.attention(dec_hidden, enc_output)
+    #     pred = enforce_repetition_penalty_(pred, batch_size, prev_output_tokens, repetition_penalty)
+    #     top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(pred), k=params["beam_size"]*2) # (batch_size, beam_size*2)
+    #     top_k_log_probs = tf.math.log(top_k_probs)
+    #     results = {"top_k_ids": top_k_ids,
+    #                "top_k_log_probs": top_k_log_probs,
+    #                "context_vector": context_vector}
+    #     return results
+
     batch_data = enc_data["enc_input"]
     inputs = tf.convert_to_tensor(batch_data)
-    enc_output, enc_hidden = model.call_encoder(inputs)
+    enc_outputs, enc_hidden = model.call_encoder(inputs)
 
     hyps = [Hypothesis(tokens=[start_index],
-                       log_probs=[0.0]) for _ in range(batch_size)]
+                       log_probs=[0.0],
+                       state=enc_hidden[0],
+                       p_gens=[],
+                       attn_dists=[],
+                       coverage=np.zeros([inputs.shape[1],1], dtype=np.float32)) for _ in range(batch_size)]
 
     results = []
     steps = 0
-    dec_hidden = enc_hidden
-    context_vector, _ = model.attention(dec_hidden, enc_output)
+    # dec_hidden = enc_hidden
+    # context_vector, _ = model.attention(dec_hidden, enc_output)
     while steps < params['max_dec_steps'] and len(results) < params['beam_size']:
         latest_tokens = [h.latest_token for h in hyps]
         latest_tokens = [t if t in range(params['vocab_size']) else unk_index for t in latest_tokens]
-        prev_output_tokens = [h.tokens for h in hyps]
+        states = [h.state for h in hyps]
+        # 使用coverage机制，屏蔽惩罚系数
+        # prev_output_tokens = [h.tokens for h in hyps]
         # hiddens = [h.hidden for h in hyps]
         dec_input = tf.expand_dims(latest_tokens, axis=1)
+        dec_states = tf.stack(states, axis=0)
         # dec_hidden = tf.stack(hiddens, axis=0)
 
-        returns = decode_onestep(context_vector, dec_input, enc_output, prev_output_tokens, batch_size, params["repetition_penalty"])
+        returns = decode_onestep(batch_data, enc_outputs, dec_input, dec_states,
+                                 enc_data["extended_enc_input"], enc_data["max_oov_len"],
+                                 enc_data["sample_encoder_pad_mask"], params["is_coverage"],
+                                 pre_coverage=None)
 
         # dec_hidden = returns["dec_hidden"]
-        context_vector = returns["context_vector"]
-        top_k_ids = returns["top_k_ids"] # (batch_size, beam_size*2)
-        top_k_log_probs = returns["top_k_log_probs"]
+        # context_vector = returns["context_vector"]
+        top_k_ids, top_k_log_probs, new_states, attn_dists, p_gens, new_coverages = returns["top_k_ids"], \
+                                                                                   returns["top_k_log_probs"], \
+                                                                                   returns["dec_state"], \
+                                                                                    returns["attention_vec"], \
+                                                                                    returns["p_gen"], \
+                                                                                    returns["coverages"] # (batch_size, beam_size*2)
 
         all_hyps = []
         num_orig_hyps = 1 if steps == 0 else len(hyps)
         for i in range(num_orig_hyps):
             # len(hyps) = batch_size
             h = hyps[i]
+            new_state=new_states[i]
+            attn_dist=attn_dists[i]
+            p_gen = p_gens[i]
+            new_coverage = new_coverages[i]
             for j in range(params["beam_size"]*2):
                 new_hyp = h.extend(token=top_k_ids[i, j].numpy(),
-                                   log_prob=top_k_log_probs[i, j])
+                                   log_prob=top_k_log_probs[i, j],
+                                   state=new_state,
+                                   attn_dist=attn_dist,
+                                   p_gen=p_gen,
+                                   coverage=new_coverage)
                 all_hyps.append(new_hyp)
         # all_hyps: batch_size*beam_size*2
         hyps = []
@@ -169,12 +230,28 @@ def batch_beam_decode(model, enc_data, vocab, params):
     # print_top_k(hyps_sorted, 3, vocab, enc_data)
 
     best_hyp = hyps_sorted[0]
-    abstract = "".join([vocab.id_to_word(index) for index in best_hyp.tokens])
-    if STOP_DECODING in abstract:
-        abstract = abstract[:abstract.index(STOP_DECODING)]
-    if START_DECODING in abstract:
-        abstract = abstract.replace(START_DECODING, '')
+    # abstract = " ".join([vocab.id_to_word(index) for index in best_hyp.tokens])
+    # if STOP_DECODING in abstract:
+    #     abstract = abstract[:abstract.index(STOP_DECODING)]
+    # if START_DECODING in abstract:
+    #     abstract = abstract.replace(START_DECODING, '')
+    abstract = result_index2text(best_hyp, vocab, enc_data)
     return abstract
+
+
+def result_index2text(hyp, vocab, enc_data):
+    article_oovs = enc_data["article_oovs"].numpy()[0]
+    words = []
+    for index in hyp.tokens:
+        if index != 2 and index != 3:
+            if index < (len(article_oovs) + vocab.size()):
+                if index < vocab.size():
+                    words.append(vocab.id_to_word(index))
+                else:
+                    words.append(article_oovs[index-vocab.size()].decode())
+            else:
+                print('error values id:{}'.format(index))
+    return " ".join(words)
 
 
 def enforce_repetition_penalty_(scores, batch_size, prev_output_tokens, repetition_penalty):
