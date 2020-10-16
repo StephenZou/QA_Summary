@@ -1,8 +1,8 @@
 import tensorflow as tf
-from modelsV1.encoders import rnn_encoders
-from modelsV1.decoders import rnn_decoders
+from pgn_model.encoders import rnn_encoders
+from pgn_model.decoders import rnn_decoders
 from data_processing.utils.data_utils import load_word2vec
-from modelsV1.utils import decoding
+from pgn_model.utils import decoding
 
 class PGN(tf.keras.Model):
     def __init__(self, params):

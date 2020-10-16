@@ -1,12 +1,28 @@
 import tensorflow as tf
 import time
-from modelsV1.utils.losses import loss_function
+from pgn_model.utils.losses import loss_function
+from transformer_pgn.schedules.lr_schedules import CustomSchedule
+from transformer_pgn.layers.transformer import create_mask
 
 START_DECODING = '[START]'
 
 
+loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction='none')
+def loss_function(real, pred):
+    mask = tf.math.logical_not(tf.math.equal(real, 1))
+    loss_ = loss_object(real, pred)
+
+    mask = tf.cast(mask, dtype=loss_.dtype)
+    loss_ *= mask
+    return tf.reduce_mean(loss_)
+
+
 def train_model(model, dataset, params, ckpt, ckpt_manager):
-    optimizer = tf.keras.optimizers.Adam(name='Adam', learning_rate=params['learning_rate'])
+    learning_rate = CustomSchedule(params["d_model"])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate,
+                                         beta_1=0.9,
+                                         beta_2=0.98,
+                                         epsilon=1e-9)
 
     # 定义损失函数 改为PGN网络，注释掉
     # def loss_function(real, pred):
@@ -20,30 +36,33 @@ def train_model(model, dataset, params, ckpt, ckpt_manager):
     #     return tf.reduce_mean(loss_)
 
 
-    def train_step(enc_inp, enc_extended_inp, dec_inp, dec_tar, batch_oov_len, enc_padding_mask, padding_mask):
+    def train_step(enc_inp, enc_extended_inp, dec_inp, dec_tar, batch_oov_len, padding_mask):
         with tf.GradientTape() as tape:
-            enc_output, enc_hidden = model.call_encoder(enc_inp)
-            dec_hidden = enc_hidden
+            # enc_output, enc_hidden = model.call_encoder(enc_inp)
+            # dec_hidden = enc_hidden
+            enc_padding_mask, combined_mask, dec_padding_mask = create_mask(enc_inp, dec_inp)
             # pred, _ = model(enc_output, dec_inp, dec_hidden, dec_tar)
-            outputs = model(enc_output,
-                            dec_hidden,
-                            enc_inp,
+            outputs = model(enc_inp,
                             enc_extended_inp,
-                            dec_inp,
                             batch_oov_len,
+                            dec_inp,
+                            params['training'],
                             enc_padding_mask,
-                            params['is_coverage'],
-                            pre_coverage=None)
-            loss = loss_function(dec_tar,
-                                 outputs,
-                                 padding_mask,
-                                 params["cov_loss_wt"],
-                                 params["is_coverage"])
+                            combined_mask,
+                            dec_padding_mask)
+            pred = outputs["logits"]
+            loss = loss_function(dec_tar, pred)
+            # loss = loss_function(dec_tar,
+            #                      outputs,
+            #                      padding_mask,
+            #                      params["cov_loss_wt"],
+            #                      params["is_coverage"])
 
-        variables = model.encoder.trainable_variables +\
-                    model.attention.trainable_variables + \
-                    model.decoder.trainable_variables + \
-                    model.pointer.trainable_variables
+        # variables = model.encoder.trainable_variables +\
+        #             model.attention.trainable_variables + \
+        #             model.decoder.trainable_variables + \
+        #             model.pointer.trainable_variables
+        variables = model.trainable_variables
         gradients = tape.gradient(loss, variables)
         optimizer.apply_gradients(zip(gradients, variables))
         return loss
@@ -55,13 +74,19 @@ def train_model(model, dataset, params, ckpt, ckpt_manager):
         step = 0
         total_loss = 0
         for batch in dataset:
-            loss = train_step(batch[0]["enc_input"],
-                              batch[0]["extended_enc_input"],
-                              batch[1]["dec_input"],
-                              batch[1]["dec_target"],
+            loss = train_step(batch[0]["enc_input"],  # shape=(16, 200)
+                              batch[0]["extended_enc_input"],  # shape=(16, 200)
+                              batch[1]["dec_input"],  # shape=(16, 50)
+                              batch[1]["dec_target"],  # shape=(16, 50)
                               batch[0]["max_oov_len"],
-                              batch[0]["sample_encoder_pad_mask"],
                               batch[1]["sample_decoder_pad_mask"])
+            # loss = train_step(batch[0]["enc_input"],
+            #                   batch[0]["extended_enc_input"],
+            #                   batch[1]["dec_input"],
+            #                   batch[1]["dec_target"],
+            #                   batch[0]["max_oov_len"],
+            #                   batch[0]["sample_encoder_pad_mask"],
+            #                   batch[1]["sample_decoder_pad_mask"])
             step += 1
             total_loss += loss
             if step % 100 == 0:

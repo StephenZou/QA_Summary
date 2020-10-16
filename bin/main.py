@@ -41,8 +41,8 @@ def main():
 
     # path
     # /ckpt/checkpoint/checkpoint
-    parser.add_argument("--seq2seq_model_dir", default='{}/modelsV1/ckpt/seq2seq'.format(BASE_DIR), help="Model folder")
-    parser.add_argument("--pgn_model_dir", default='{}/modelsV1/ckpt/pgn'.format(BASE_DIR), help="Model folder")
+    parser.add_argument("--seq2seq_model_dir", default='{}/pgn_model/ckpt/seq2seq'.format(BASE_DIR), help="Model folder")
+    parser.add_argument("--pgn_model_dir", default='{}/pgn_model/ckpt/pgn'.format(BASE_DIR), help="Model folder")
     parser.add_argument("--model_path", help="Path to a specific model", default="", type=str)
     parser.add_argument("--train_seg_x_dir", default='{}/data_processing/datasets/train_set.seg_x.txt'.format(BASE_DIR),
                         help="train_seg_x_dir")
@@ -69,6 +69,17 @@ def main():
     parser.add_argument("--max_num_to_eval", default=5, help="max_num_to_eval", type=int)
     parser.add_argument("--epochs", default=20, help="train epochs", type=int)
 
+    # transformer
+    parser.add_argument("--d_model", default=512, type=int,
+                        help="hidden dimension of encoder/decoder")
+    parser.add_argument("--num_blocks", default=3, type=int,
+                        help="number of encoder/decoder blocks")
+    parser.add_argument("--num_heads", default=8, type=int,
+                        help="number of attention heads")
+    parser.add_argument("--dff", default=2048, type=int,
+                        help="hidden dimension of feedforward layer")
+    parser.add_argument("--dropout_rate", default=0.1, type=float)
+
     # mode
     parser.add_argument("--mode", default='train', help="training, eval or test options")
     parser.add_argument("--model", default='PGN', help="which model to be slected")
@@ -89,6 +100,7 @@ def main():
 
     if params["mode"] == "train":
         params["steps_per_epoch"] = NUM_SAMPLES // params["batch_size"]
+        params["training"] = True
         train(params)
     elif params["mode"] == "test":
         # params["batch_size"] = params["beam_size"]

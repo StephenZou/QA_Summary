@@ -1,6 +1,6 @@
 import tensorflow as tf
-from modelsV1.encoders import rnn_encoders
-from modelsV1.decoders import rnn_decoders
+from pgn_model.encoders import rnn_encoders
+from pgn_model.decoders import rnn_decoders
 from data_processing.utils.data_utils import load_word2vec
 
 

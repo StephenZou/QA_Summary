@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from modelsV1.models.pgn import PGN
-from modelsV1.models.sequence_to_sequence import SequenceToSequence
+from pgn_model.models.pgn import PGN
+from pgn_model.models.sequence_to_sequence import SequenceToSequence
 from utils.batcher import Vocab, batcher
 from utils.train_helper import train_model
 from .test_helper import search_decode
@@ -11,6 +11,7 @@ import pandas as pd
 import pprint
 import os
 from rouge import Rouge
+from transformer_pgn.models.transformer import PGN_TRANSFORMER
 
 
 def train(params):
@@ -24,7 +25,8 @@ def train(params):
 
     print("Building the model ...")
     # model = SequenceToSequence(params)
-    model = PGN(params)
+    # model = PGN(params)
+    model = PGN_TRANSFORMER(params)
 
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}/checkpoint".format(params["seq2seq_model_dir"])
